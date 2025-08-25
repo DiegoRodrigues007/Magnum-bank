@@ -77,9 +77,8 @@ export const fetchTransactions = createAsyncThunk<
     });
 
     return data;
-  } catch (e: any) {
-    const message = e?.response?.data?.message ?? "Falha ao carregar transações";
-    return rejectWithValue(message);
+  } catch {
+    return rejectWithValue("");
   }
 });
 
@@ -128,7 +127,7 @@ export const createTransaction = createAsyncThunk<
 
     return txRes.data;
   } catch (e: any) {
-    const message = e?.response?.data?.message ?? e?.message ?? "Falha ao criar transação";
+    const message = e?.response?.data?.message ?? e?.message ?? "";
     return rejectWithValue(message);
   }
 });
@@ -151,12 +150,12 @@ const slice = createSlice({
         s.error = null;
       })
       .addCase(fetchTransactions.fulfilled, (s, a) => {
-        s.status = "idle"; 
+        s.status = "idle";
         s.items = a.payload;
       })
-      .addCase(fetchTransactions.rejected, (s, a) => {
-        s.status = "failed";
-        s.error = (a.payload as string) ?? "Erro ao carregar transações";
+      .addCase(fetchTransactions.rejected, (s) => {
+        s.status = "idle";
+        s.error = null;
       })
 
       .addCase(createTransaction.pending, (s) => {
@@ -166,7 +165,7 @@ const slice = createSlice({
         s.items.unshift(a.payload);
       })
       .addCase(createTransaction.rejected, (s, a) => {
-        s.error = (a.payload as string) ?? "Erro ao criar transação";
+        s.error = (a.payload as string) || null;
       });
   },
 });

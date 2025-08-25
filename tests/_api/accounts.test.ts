@@ -3,18 +3,28 @@
 import "./setup";
 import { jget, jpost, jpatch } from "./http";
 
-describe("Account handlers", () => {
-  test("/account/me requer sessão e retorna conta", async () => {
-    await jpost("/auth/login", { email: "diego@teste.com", password: "123456" });
+describe("Account handlers (JWT)", () => {
+  test("/account/me requer login e retorna conta", async () => {
+    await jpost(
+      "/auth/login",
+      { email: "diego@teste.com", password: "123456" },
+      { noAuth: true }
+    );
+
     const me = await jget("/account/me");
     expect(me.res.status).toBe(200);
     expect(me.data).toHaveProperty("userId");
+    expect(typeof me.data.balance).toBe("number");
     expect(me.data.balance).toBeGreaterThan(0);
   });
 
   test("/accounts?userId= retorna contas do usuário", async () => {
-    const login = await jpost("/auth/login", { email: "diego@teste.com", password: "123456" });
-    const userId = login.data.user.id;
+    const login = await jpost(
+      "/auth/login",
+      { email: "diego@teste.com", password: "123456" },
+      { noAuth: true }
+    );
+    const userId = login.data.user.id as number;
 
     const r = await jget(`/accounts?userId=${userId}`);
     expect(r.res.status).toBe(200);
@@ -26,16 +36,32 @@ describe("Account handlers", () => {
     });
   });
 
-  test("GET /accounts sem userId dá 400", async () => {
+  test("GET /accounts sem userId dá 400 (com token)", async () => {
+    await jpost(
+      "/auth/login",
+      { email: "diego@teste.com", password: "123456" },
+      { noAuth: true }
+    );
+
     const { res, data } = await jget("/accounts");
     expect(res.status).toBe(400);
     expect(data).toMatchObject({ message: "userId obrigatório" });
   });
 
   test("PATCH /accounts/:id atualiza parcialmente e 404 para id inexistente", async () => {
-    await jpost("/auth/login", { email: "diego@teste.com", password: "123456" });
-    const accs = await jget("/accounts?userId=1"); // seed
-    const accId = accs.data[0].id;
+    const login = await jpost(
+      "/auth/login",
+      { email: "diego@teste.com", password: "123456" },
+      { noAuth: true }
+    );
+    const userId = login.data.user.id as number;
+
+    const meAcc = await jget("/account/me");
+    expect(meAcc.res.status).toBe(200);
+
+    const accs = await jget(`/accounts?userId=${userId}`);
+    expect(accs.res.status).toBe(200);
+    const accId = accs.data[0].id as number;
 
     const ok = await jpatch(`/accounts/${accId}`, { agency: "0002" });
     expect(ok.res.status).toBe(200);

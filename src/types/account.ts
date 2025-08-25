@@ -12,7 +12,7 @@ export interface ApiAccount {
   balance?: number | string | null;
 }
 
-export type AccountStatus = "idle" | "loading" | "failed";
+export type AccountStatus = "idle" | "loading" | "succeeded" | "failed";
 
 export interface AccountState {
   current: Account | null;

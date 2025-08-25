@@ -1,12 +1,13 @@
 import { useMemo } from "react";
-import type { Transaction, TxType } from "../types/transaction"; 
+import type { Transaction, TxType } from "../types/transaction";
 import { dt } from "../utils/format";
 import type { TxFilterOptions } from "../types/filters";
 
-const parseDec = (v: string, fallback: number) => {
+const parseDec = (v: unknown, fallback: number) => {
   if (v === "" || v == null) return fallback;
-  const n = parseFloat(String(v).replace(",", "."));
-  return Number.isFinite(n) ? n : fallback;
+  const n =
+    typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) ? Number(n) : fallback;
 };
 
 const haystack = (t: Transaction) =>
@@ -15,14 +16,25 @@ const haystack = (t: Transaction) =>
     .trim();
 
 export function filterAndSortTransactions(
-  data: Transaction[],
+  rawData: unknown,
   opts: TxFilterOptions
 ): Transaction[] {
-  const { q, type, from, to, minValue, maxValue, sortAsc } = opts;
+  const data: Transaction[] = Array.isArray(rawData) ? rawData : [];
+  if (data.length === 0) return [];
 
-  const qLower = q.toLowerCase();
-  const start = from ? dt(from + "T00:00:00") : new Date(0);
-  const end = to ? dt(to + "T23:59:59") : new Date(8640000000000000);
+  const q = (opts.q ?? "").toString();
+  const type = (opts.type ?? "ALL") as TxType | "ALL";
+  const from = (opts.from ?? "").toString();
+  const to = (opts.to ?? "").toString();
+  const minValue = opts.minValue ?? "";
+  const maxValue = opts.maxValue ?? "";
+  const sortAsc = Boolean(opts.sortAsc);
+
+  const qLower = q.toLowerCase().trim();
+
+  const start = from ? dt(`${from}T00:00:00`) : new Date(0);
+  const end = to ? dt(`${to}T23:59:59`) : new Date(8640000000000000);
+
   const min = parseDec(minValue, 0);
   const max = parseDec(maxValue, Infinity);
 
@@ -30,20 +42,30 @@ export function filterAndSortTransactions(
   const byQuery = (t: Transaction) => (qLower ? haystack(t).includes(qLower) : true);
   const byDate = (t: Transaction) => {
     const d = dt(t.date);
-    return d >= start && d <= end;
+    const ts = d.getTime();
+    return Number.isFinite(ts) && d >= start && d <= end;
   };
   const byAmount = (t: Transaction) => {
-    const v = Math.abs(t.amount);
-    return v >= min && v <= max;
+    const v = Math.abs(Number(t.amount));
+    return Number.isFinite(v) && v >= min && v <= max;
   };
-  const bySort = (a: Transaction, b: Transaction) =>
-    (sortAsc ? 1 : -1) * (dt(a.date).getTime() - dt(b.date).getTime());
+  const bySort = (a: Transaction, b: Transaction) => {
+    const aTs = dt(a.date).getTime();
+    const bTs = dt(b.date).getTime();
+    const dir = sortAsc ? 1 : -1;
+    return dir * (aTs - bTs);
+  };
 
-  return data.filter(byType).filter(byQuery).filter(byDate).filter(byAmount).sort(bySort);
+  return data
+    .filter(byType)
+    .filter(byQuery)
+    .filter(byDate)
+    .filter(byAmount)
+    .sort(bySort);
 }
 
 export default function useFilteredTransactions(
-  data: Transaction[],
+  data: unknown,               
   opts: TxFilterOptions
 ) {
   const { q, type, from, to, minValue, maxValue, sortAsc } = opts;

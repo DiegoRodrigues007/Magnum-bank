@@ -1,40 +1,17 @@
-function makeStorage(): Storage {
-  const m = new Map<string, string>();
-  return {
-    get length() {
-      return m.size;
-    },
-    clear() {
-      m.clear();
-    },
-    getItem(key: string) {
-      return m.has(key) ? m.get(key)! : null;
-    },
-    key(index: number) {
-      return Array.from(m.keys())[index] ?? null;
-    },
-    removeItem(key: string) {
-      m.delete(key);
-    },
-    setItem(key: string, value: string) {
-      m.set(key, String(value));
-    },
-  } as unknown as Storage;
-}
-
-if (typeof (globalThis as any).localStorage === "undefined") {
-  (globalThis as any).localStorage = makeStorage();
-}
-
-type User = { id: number; name: string; email: string; password: string };
-type Account = {
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+  password: string;
+};
+export type Account = {
   id: number;
   userId: number;
   agency: string;
   number: string;
   balance: number;
 };
-type Transaction = {
+export type Transaction = {
   id: number;
   userId: number;
   type: "PIX" | "TED" | string;
@@ -45,79 +22,138 @@ type Transaction = {
   balanceAfter: number;
 };
 
+const DB_NAME = "magnum-msw";
+const STORE = "kv";
+
 const USERS_KEY = "mock_users";
 const ACCOUNTS_KEY = "mock_accounts";
 const TX_KEY = "mock_transactions";
 const SESSION_KEY = "mock_session_email";
 
-const readJson = <T>(key: string, fallback: T): T => {
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(key: string): Promise<string | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(key);
+    req.onsuccess = () => resolve((req.result as string) ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSet(key: string, value: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbDel(key: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbClear(): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+const mem = new Map<string, string>();
+const hasIDB = typeof indexedDB !== "undefined";
+
+const storage = {
+  async getItem(key: string) {
+    if (hasIDB) return await idbGet(key);
+    return mem.has(key) ? mem.get(key)! : null;
+  },
+  async setItem(key: string, value: string) {
+    if (hasIDB) return await idbSet(key, value);
+    mem.set(key, value);
+  },
+  async removeItem(key: string) {
+    if (hasIDB) return await idbDel(key);
+    mem.delete(key);
+  },
+  async clear() {
+    if (hasIDB) return await idbClear();
+    mem.clear();
+  },
+};
+
+const readJson = async <T>(key: string, fallback: T): Promise<T> => {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = await storage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
 };
-const writeJson = (key: string, value: unknown) => {
-  localStorage.setItem(key, JSON.stringify(value));
-};
+const writeJson = async (key: string, value: unknown) =>
+  storage.setItem(key, JSON.stringify(value));
 
 const genId = (list: { id: number }[]) =>
   list.length ? Math.max(...list.map((x) => x.id)) + 1 : 1;
 
-export const ensureSeed = () => {
-  const users = readJson<User[]>(USERS_KEY, []);
-  if (!users.some((u) => u.email === "diego@teste.com")) {
-    const user: User = {
-      id: 1,
-      name: "Diego",
-      email: "diego@teste.com",
-      password: "123456",
-    };
-    writeJson(USERS_KEY, [...users, user]);
-
-    const accounts = readJson<Account[]>(ACCOUNTS_KEY, []);
-    const acc: Account = {
-      id: 1,
-      userId: 1,
-      agency: "0001",
-      number: "123456-7",
-      balance: 1000,
-    };
-    writeJson(ACCOUNTS_KEY, [...accounts, acc]);
-
-    const txs = readJson<Transaction[]>(TX_KEY, []);
-    writeJson(TX_KEY, txs);
-  }
-};
-
 export const db = {
-  getSessionEmail(): string | null {
+  async reset() {
+    await storage.clear();
+  },
+
+  async getSessionEmail(): Promise<string | null> {
     try {
-      const raw = localStorage.getItem(SESSION_KEY);
-      if (raw === "null") return null;
+      const raw = await storage.getItem(SESSION_KEY);
+      if (raw === "null" || raw === null) return null;
       return raw;
     } catch {
       return null;
     }
   },
-  setSessionEmail(email: string | null) {
-    localStorage.setItem(SESSION_KEY, email ?? "null");
+
+  async setSessionEmail(email: string | null) {
+    await storage.setItem(SESSION_KEY, email ?? "null");
   },
 
-  getUsers(): User[] {
-    return readJson<User[]>(USERS_KEY, []);
+  async getUsers(): Promise<User[]> {
+    return await readJson<User[]>(USERS_KEY, []);
   },
-  saveUsers(users: User[]) {
-    writeJson(USERS_KEY, users);
+
+  async saveUsers(users: User[]) {
+    await writeJson(USERS_KEY, users);
   },
-  upsertUser(u: Omit<User, "id"> & Partial<Pick<User, "id">>) {
-    const users = db.getUsers();
+
+  async upsertUser(
+    u: Omit<User, "id"> & Partial<Pick<User, "id">>
+  ): Promise<User> {
+    const users = await this.getUsers();
     if (u.id) {
       const idx = users.findIndex((x) => x.id === u.id);
       if (idx >= 0) {
         users[idx] = { ...(users[idx] as User), ...(u as User) };
-        db.saveUsers(users);
+        await this.saveUsers(users);
         return users[idx];
       }
     }
@@ -128,18 +164,20 @@ export const db = {
       email: u.email!,
       password: u.password!,
     };
-    db.saveUsers([...users, nu]);
+    await this.saveUsers([...users, nu]);
     return nu;
   },
 
-  getAccounts(): Account[] {
-    return readJson<Account[]>(ACCOUNTS_KEY, []);
+  async getAccounts(): Promise<Account[]> {
+    return await readJson<Account[]>(ACCOUNTS_KEY, []);
   },
-  saveAccounts(list: Account[]) {
-    writeJson(ACCOUNTS_KEY, list);
+
+  async saveAccounts(list: Account[]) {
+    await writeJson(ACCOUNTS_KEY, list);
   },
-  ensureAccountForUser(userId: number) {
-    const accs = db.getAccounts();
+
+  async ensureAccountForUser(userId: number): Promise<Account> {
+    const accs = await this.getAccounts();
     let acc = accs.find((a) => a.userId === userId);
     if (!acc) {
       acc = {
@@ -149,26 +187,35 @@ export const db = {
         number: (100000 + Math.floor(Math.random() * 899999)).toString(),
         balance: 1000,
       };
-      db.saveAccounts([...accs, acc]);
+      await this.saveAccounts([...accs, acc]);
     }
     return acc;
   },
 
-  getTxs(): Transaction[] {
-    return readJson<Transaction[]>(TX_KEY, []);
+  async getTxs(): Promise<Transaction[]> {
+    return await readJson<Transaction[]>(TX_KEY, []);
   },
-  saveTxs(list: Transaction[]) {
-    writeJson(TX_KEY, list);
+
+  async saveTxs(list: Transaction[]) {
+    await writeJson(TX_KEY, list);
   },
-  createTx(tx: Omit<Transaction, "id">) {
-    const all = db.getTxs();
+
+  async createTx(tx: Omit<Transaction, "id">): Promise<Transaction> {
+    const all = await this.getTxs();
     const id = genId(all);
     const created: Transaction = { id, ...tx };
-    db.saveTxs([created, ...all]);
+    await this.saveTxs([created, ...all]);
     return created;
   },
 };
 
-ensureSeed();
-
-export type { User, Account, Transaction };
+(async () => {
+  const [users, accounts, txs] = await Promise.all([
+    storage.getItem(USERS_KEY),
+    storage.getItem(ACCOUNTS_KEY),
+    storage.getItem(TX_KEY),
+  ]);
+  if (users == null) await writeJson(USERS_KEY, []);
+  if (accounts == null) await writeJson(ACCOUNTS_KEY, []);
+  if (txs == null) await writeJson(TX_KEY, []);
+})();

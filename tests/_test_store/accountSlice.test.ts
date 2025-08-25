@@ -1,43 +1,63 @@
-import { configureStore } from "@reduxjs/toolkit";
-import reducer, { fetchMyAccount, clearAccount } from "../../src/store/accountSlice";
-import axios from "axios";
+/** @jest-environment jsdom */
 
-jest.mock("axios");
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+import { configureStore } from "@reduxjs/toolkit";
+import accountReducer, {
+  fetchMyAccount,
+  clearAccount,
+} from "../../src/store/accountSlice";
+import { api } from "../../src/services/api";
+
+jest.mock("../../src/services/api", () => ({
+  api: {
+    get: jest.fn(),
+  },
+}));
+
+type MockedApi = { get: jest.Mock };
+const mockedApi = api as unknown as MockedApi;
 
 const makeStore = () =>
   configureStore({
-    reducer: { account: reducer },
+    reducer: { account: accountReducer },
   });
 
 beforeEach(() => {
   jest.clearAllMocks();
+  try {
+    localStorage.clear();
+  } catch {}
 });
 
 describe("accountSlice", () => {
   test("fetchMyAccount sucesso popula current e zera status", async () => {
-    const store = makeStore();
-
-    mockedAxios.get.mockResolvedValueOnce({
+    mockedApi.get.mockResolvedValueOnce({
       data: { userId: 1, number: "0001-9", agency: "1234-5", balance: 999.99 },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: {},
     });
 
+    const store = makeStore();
     await store.dispatch(fetchMyAccount() as any);
 
     const st = store.getState().account;
     expect(st.status).toBe("idle");
     expect(st.error).toBeNull();
-    expect(st.current?.userId).toBe(1);
-    expect(st.current?.balance).toBe(999.99);
+    expect(st.current).toEqual({
+      userId: 1,
+      number: "0001-9",
+      agency: "1234-5",
+      balance: 999.99,
+    });
   });
 
   test("fetchMyAccount erro popula error", async () => {
-    const store = makeStore();
-
-    mockedAxios.get.mockRejectedValueOnce({
+    mockedApi.get.mockRejectedValueOnce({
       response: { data: { message: "Falha ao carregar conta" } },
     });
 
+    const store = makeStore();
     await store.dispatch(fetchMyAccount() as any);
 
     const st = store.getState().account;
@@ -51,7 +71,7 @@ describe("accountSlice", () => {
       status: "idle" as const,
       error: "x",
     };
-    const st = reducer(pre as any, clearAccount());
+    const st = accountReducer(pre as any, clearAccount());
     expect(st.current).toBeNull();
     expect(st.status).toBe("idle");
     expect(st.error).toBeNull();

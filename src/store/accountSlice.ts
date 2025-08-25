@@ -1,10 +1,7 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from "@reduxjs/toolkit";
-import axios from "axios";
+import { api } from "../services/api";
 import type { RootState } from "./index";
 import type { Account, ApiAccount, AccountState } from "../types/account";
-import { API_URL } from "../config/env";
-
-const API = API_URL;
 
 const initialState: AccountState = {
   current: null,
@@ -25,7 +22,7 @@ export const fetchMyAccount = createAsyncThunk<
   { state: RootState; rejectValue: string }
 >("account/fetchMyAccount", async (_, { rejectWithValue }) => {
   try {
-    const { data } = await axios.get<ApiAccount>(`${API}/account/me`);
+    const { data } = await api.get<ApiAccount>("/account/me");
     return normalizeAccount(data);
   } catch (err: any) {
     const msg: string = err?.response?.data?.message ?? "Falha ao carregar conta";
@@ -52,6 +49,7 @@ const accountSlice = createSlice({
       .addCase(fetchMyAccount.fulfilled, (state, action: PayloadAction<Account>) => {
         state.status = "idle";
         state.current = action.payload;
+        state.error = null;
       })
       .addCase(fetchMyAccount.rejected, (state, action) => {
         state.status = "failed";

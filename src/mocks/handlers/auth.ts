@@ -1,40 +1,63 @@
 import { http, HttpResponse } from "msw";
-import { db } from "./db";
+import { db } from "../handlers/db";
+import {
+  normalizeEmail,
+  readBearer,
+  signAccess,
+  signRefresh,
+  verifyAccess,
+  verifyRefresh,
+} from "../security/jwt";
 
 type RegisterBody = { name: string; email: string; password: string };
 type LoginBody = { email: string; password: string };
 
-const normalizeEmail = (e: string) => e.trim().toLowerCase();
+function hasRefreshToken(v: unknown): v is { refreshToken?: unknown } {
+  return typeof v === "object" && v !== null && "refreshToken" in (v as any);
+}
 
 export const authHandlers = [
   http.post("*/auth/register", async ({ request }) => {
     try {
       const { name, email, password } = (await request.json()) as RegisterBody;
-
       if (!name || !email || !password) {
-        return HttpResponse.json({ message: "Dados inválidos" }, { status: 400 });
+        return HttpResponse.json(
+          { message: "Dados inválidos" },
+          { status: 400 }
+        );
       }
 
-      const users = db.getUsers();
-      if (users.some(u => normalizeEmail(u.email) === normalizeEmail(email))) {
-        return HttpResponse.json({ message: "Email já cadastrado" }, { status: 409 });
+      const users = await db.getUsers();
+      if (
+        users.some((u) => normalizeEmail(u.email) === normalizeEmail(email))
+      ) {
+        return HttpResponse.json(
+          { message: "Email já cadastrado" },
+          { status: 409 }
+        );
       }
 
-      const user = db.upsertUser({
+      const user = await db.upsertUser({
         name,
         email: normalizeEmail(email),
         password,
       });
 
-      db.ensureAccountForUser(user.id);
-      db.setSessionEmail(user.email);
+      await db.ensureAccountForUser(user.id);
 
-      return HttpResponse.json({
-        accessToken: "mock_access_" + Date.now(),
-        refreshToken: "mock_refresh_" + Date.now(),
-        user: { id: user.id, name: user.name, email: user.email },
-      }, { status: 201 });
-    } catch {
+      const accessToken = await signAccess(user.email);
+      const refreshToken = await signRefresh(user.email);
+
+      return HttpResponse.json(
+        {
+          accessToken,
+          refreshToken,
+          user: { id: user.id, name: user.name, email: user.email },
+        },
+        { status: 201 }
+      );
+    } catch (err) {
+      console.error("[MSW] /auth/register error", err);
       return HttpResponse.json({ message: "Bad Request" }, { status: 400 });
     }
   }),
@@ -42,47 +65,95 @@ export const authHandlers = [
   http.post("*/auth/login", async ({ request }) => {
     try {
       const { email, password } = (await request.json()) as LoginBody;
+      const users = await db.getUsers();
 
-      const user = db.getUsers().find(
-        u => normalizeEmail(u.email) === normalizeEmail(email) && u.password === password
+      const user = users.find(
+        (u) =>
+          normalizeEmail(u.email) === normalizeEmail(email) &&
+          u.password === password
       );
 
       if (!user) {
-        return HttpResponse.json({ message: "Credenciais inválidas" }, { status: 401 });
+        return HttpResponse.json(
+          { message: "Credenciais inválidas" },
+          { status: 401 }
+        );
       }
 
-      db.setSessionEmail(user.email);
-      db.ensureAccountForUser(user.id);
+      const accessToken = await signAccess(user.email);
+      const refreshToken = await signRefresh(user.email);
 
-      return HttpResponse.json({
-        accessToken: "mock_access_" + Date.now(),
-        refreshToken: "mock_refresh_" + Date.now(),
-        user: { id: user.id, name: user.name, email: user.email },
-      }, { status: 200 });
-    } catch {
+      return HttpResponse.json(
+        {
+          accessToken,
+          refreshToken,
+          user: { id: user.id, name: user.name, email: user.email },
+        },
+        { status: 200 }
+      );
+    } catch (err) {
+      console.error("[MSW] /auth/login error", err);
       return HttpResponse.json({ message: "Bad Request" }, { status: 400 });
     }
   }),
 
-  http.get("*/auth/me", async () => {
-    const email = db.getSessionEmail();
-    if (!email) return HttpResponse.json({ authenticated: false }, { status: 200 });
+  http.get("*/auth/me", async ({ request }) => {
+    try {
+      const token = readBearer(request);
+      if (!token)
+        return HttpResponse.json({ message: "Unauthorized" }, { status: 401 });
 
-    const user = db.getUsers().find(u => normalizeEmail(u.email) === normalizeEmail(email));
-    if (!user) return HttpResponse.json({ authenticated: false }, { status: 200 });
+      const payload = await verifyAccess(token);
+      const email = String(payload.sub || "");
 
-    return HttpResponse.json({
-      authenticated: true,
-      user: { id: user.id, name: user.name, email: user.email },
-    }, { status: 200 });
+      const users = await db.getUsers();
+      const user = users.find(
+        (u) => normalizeEmail(u.email) === normalizeEmail(email)
+      );
+      if (!user)
+        return HttpResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+      return HttpResponse.json(
+        { id: user.id, name: user.name, email: user.email },
+        { status: 200 }
+      );
+    } catch {
+      return HttpResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
   }),
 
   http.post("*/auth/logout", async () => {
-    db.setSessionEmail(null);
     return HttpResponse.json({ ok: true }, { status: 200 });
   }),
 
-  http.post("*/auth/refresh", async () => {
-    return HttpResponse.json({ accessToken: "mock_access_" + Date.now() }, { status: 200 });
+  http.post("*/auth/refresh", async ({ request }) => {
+    try {
+      const fromHeader = request.headers.get("x-refresh-token");
+
+      let fromBody: string | null = null;
+      try {
+        const raw = (await request.json()) as unknown;
+        if (hasRefreshToken(raw)) {
+          const v = (raw as any).refreshToken;
+          if (typeof v === "string") fromBody = v;
+        }
+      } catch {}
+
+      const token = fromHeader || fromBody;
+      if (!token) {
+        return HttpResponse.json(
+          { message: "Invalid refresh" },
+          { status: 401 }
+        );
+      }
+
+      const payload = await verifyRefresh(token);
+      const email = String(payload.sub || "");
+      const newAccess = await signAccess(email);
+
+      return HttpResponse.json({ accessToken: newAccess }, { status: 200 });
+    } catch {
+      return HttpResponse.json({ message: "Invalid refresh" }, { status: 401 });
+    }
   }),
 ];

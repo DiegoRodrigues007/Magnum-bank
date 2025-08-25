@@ -21,10 +21,7 @@ interface StatementPageProps {
 const HOJE = new Date();
 const PRIMEIRO_DIA_MES = new Date(HOJE.getFullYear(), HOJE.getMonth(), 1);
 
-const StatementPage: React.FC<StatementPageProps> = ({
-  transactions,
-  balance,
-}) => {
+const StatementPage: React.FC<StatementPageProps> = ({ transactions }) => {
   const dispatch = useAppDispatch();
 
   const userId = useAppSelector((s) => s.auth.user?.id);
@@ -34,19 +31,18 @@ const StatementPage: React.FC<StatementPageProps> = ({
   );
   const txStatus = useAppSelector((s) => s.transactions.status);
   const txError = useAppSelector((s) => s.transactions.error);
-  const storeBalance = useAppSelector(
-    (s) => s.account?.current?.balance ?? 0
-  ) as number;
-  void balance;
-  void storeBalance;
+
+  const data: Transaction[] = Array.isArray(transactions)
+    ? transactions
+    : Array.isArray(storeTx)
+    ? storeTx
+    : [];
 
   useEffect(() => {
-    if (userId) {
+    if (userId && txStatus === "idle" && data.length === 0) {
       dispatch(fetchTransactions({ userId }));
     }
-  }, [dispatch, userId]);
-
-  const data = (transactions ?? storeTx ?? []) as Transaction[];
+  }, [dispatch, userId, txStatus]);
 
   const [q, setQ] = useState("");
   const [type, setType] = useState<FilterType>("ALL");
@@ -91,6 +87,7 @@ const StatementPage: React.FC<StatementPageProps> = ({
     () => groupByDayBR(filtered, (t) => t.date),
     [filtered]
   );
+
   return (
     <div className="min-h-screen bg-[#0f172b] text-slate-100">
       <header className="sticky top-0 z-20 backdrop-blur border-b border-slate-800 bg-[#0f172b]/80">
@@ -103,11 +100,7 @@ const StatementPage: React.FC<StatementPageProps> = ({
             onClick={toggleSort}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800"
           >
-            {sortAsc ? (
-              <SortAsc className="h-4 w-4" />
-            ) : (
-              <SortDesc className="h-4 w-4" />
-            )}
+            {sortAsc ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
             Ordenar por Data
           </button>
         </div>
