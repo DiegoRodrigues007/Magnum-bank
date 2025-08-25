@@ -14,11 +14,11 @@ declare global {
 }
 
 async function startMocks() {
-  if (import.meta.env.VITE_USE_MOCKS === "true") {
+  if (process.env.VITE_USE_MOCKS === "true") {
     const { worker } = await import("./mocks/browser");
     await worker.start({
-      onUnhandledRequest: "bypass",
       serviceWorker: { url: "/mockServiceWorker.js" },
+      onUnhandledRequest: "bypass",
     });
     if ("serviceWorker" in navigator) {
       try {
@@ -28,8 +28,7 @@ async function startMocks() {
   }
 }
 
-const rootEl = document.getElementById("root")!;
-const root = ReactDOM.createRoot(rootEl);
+const root = ReactDOM.createRoot(document.getElementById("root")!);
 
 function renderApp() {
   root.render(
@@ -46,14 +45,15 @@ async function bootstrap() {
   window.__APP_BOOTSTRAPPED__ = true;
 
   await startMocks();
+
   store.dispatch(initFromStorage());
 
   try {
     await store.dispatch(loadSession()).unwrap();
   } catch {}
 
-  const state = store.getState();
-  if (state.auth.user?.id) {
+  const s = store.getState();
+  if (s.auth.user?.id) {
     try {
       await store.dispatch(fetchMyAccount()).unwrap();
     } catch {}
@@ -63,6 +63,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.warn("[App] Bootstrap com warning:", err);
+  console.warn("[App] Bootstrap warning:", err);
   renderApp();
 });
