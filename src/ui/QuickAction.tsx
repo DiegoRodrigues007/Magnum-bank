@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, ArrowDown, Wallet, ChevronRight } from "lucide-react";
 

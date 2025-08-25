@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { shallowEqual, useSelector } from "react-redux";
 import { useAppSelector, useAppDispatch } from "../store/hooks";

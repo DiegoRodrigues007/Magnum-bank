@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { Transaction } from "../types/txModels"; 
 import { areTransactionsEqual } from "../utils/transactionEquality";
 import { ArrowDown, ArrowUp } from "lucide-react";

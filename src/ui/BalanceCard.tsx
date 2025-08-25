@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import { memo, useMemo } from "react";
 import { Eye, EyeOff, CreditCard } from "lucide-react";
 
 type Props = {
